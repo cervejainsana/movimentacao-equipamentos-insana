@@ -32,6 +32,7 @@ padding:13px 14px;font-size:16px;font-family:inherit;outline:none;transition:.15
 select{background-image:linear-gradient(45deg,transparent 50%,var(--lime) 50%),linear-gradient(135deg,var(--lime) 50%,transparent 50%);
 background-position:calc(100% - 20px) 50%,calc(100% - 14px) 50%;background-size:6px 6px;background-repeat:no-repeat;padding-right:40px;}
 select option{background:#1a1a24;color:#fff;}
+input[type=date]{color-scheme:dark;min-height:50px;}
 textarea{min-height:110px;resize:vertical;line-height:1.45;}
 input:focus,select:focus,textarea:focus{border-color:var(--lime);box-shadow:0 0 0 3px var(--lime-dim);}
 .invalid{border-color:var(--red)!important;}
@@ -90,7 +91,7 @@ footer a:hover{text-decoration:underline;}
 <div id="formView">
 <div class="kicker">Equipamentos</div>
 <h1>Movimentação de Equipamentos</h1>
-<p class="intro">Solicite remanejo de térmicas ou geladeiras, ou uma visita técnica. A solicitação passa pela aprovação do gestor antes de seguir para a equipe.</p>
+<p class="intro">Solicite remanejo de térmicas ou geladeiras, uma térmica nova ou uma visita técnica. A solicitação passa pela aprovação do gestor antes de seguir para a equipe.</p>
 <div class="preview-banner hidden" id="previewBanner">Versão de conferência: o envio ainda não está ligado.</div>
 <div class="err-box" id="errBox"></div>
 
@@ -106,6 +107,7 @@ footer a:hover{text-decoration:underline;}
       <option value="">Selecione o tipo</option>
       <option>Remanejo de Térmicas</option>
       <option>Remanejo de Geladeiras</option>
+      <option>Solicitar nova térmica</option>
       <option>Solicitação de Visita Técnica (Geladeira)</option>
     </select></div>
   <div class="field"><label class="lb" for="motivo">Motivo <b class="req">*</b></label>
@@ -115,6 +117,8 @@ footer a:hover{text-decoration:underline;}
       <option>Mudança</option>
       <option>Ações</option>
     </select></div>
+  <div class="field"><label class="lb" for="prazo">Prazo limite para a troca <b class="req">*</b></label>
+    <input type="date" id="prazo" name="prazo" required></div>
 </div>
 
 <div class="card hidden" id="cardRemanejo">
@@ -123,6 +127,12 @@ footer a:hover{text-decoration:underline;}
   <div class="field" data-picker="retirar" data-label="Loja a retirar"></div>
   <div class="arrow"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16M5 13l7 7 7-7"/></svg></div>
   <div class="field" data-picker="entregar" data-label="Loja a entregar"></div>
+</div>
+
+<div class="card hidden" id="cardNova">
+  <h2><span class="n">2</span>Loja</h2>
+  <p class="hint">Loja que ainda não tem térmica e vai receber uma nova. Busque pelo nome ou pelo CNPJ.</p>
+  <div class="field" data-picker="nova" data-label="Loja para enviar a térmica"></div>
 </div>
 
 <div class="card hidden" id="cardVisita">
@@ -134,8 +144,8 @@ footer a:hover{text-decoration:underline;}
 <div class="card">
   <h2><span class="n" id="nContato">3</span>Contato e observações</h2>
   <div class="grid2">
-    <div class="field"><label class="lb" for="contato_nome">Gerente ou responsável <b class="req">*</b></label><input id="contato_nome" name="contato_nome" required autocomplete="off"></div>
-    <div class="field"><label class="lb" for="contato_tel">Telefone / WhatsApp <b class="req">*</b></label><input id="contato_tel" name="contato_tel" inputmode="tel" placeholder="(00) 00000-0000" required></div>
+    <div class="field"><label class="lb" for="contato_nome">Gerente ou responsável</label><input id="contato_nome" name="contato_nome" autocomplete="off" placeholder="Opcional"></div>
+    <div class="field"><label class="lb" for="contato_tel">Telefone / WhatsApp</label><input id="contato_tel" name="contato_tel" inputmode="tel" placeholder="Opcional"></div>
   </div>
   <div class="field"><label class="lb" for="observacao">Observação</label>
     <textarea id="observacao" name="observacao" placeholder="Ex.: modelo do equipamento, horário para retirada, defeito apresentado..."></textarea></div>
@@ -207,6 +217,8 @@ f.contato_tel.addEventListener("input", () => {
 const pickers = {};
 const PIN = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8FF925" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>';
 const GESTOR = "Luan";
+const hojeISO = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0,10); };
+f.prazo.min = hojeISO();
 const ehGestor = () => norm(f.vendedor.value) === norm(GESTOR);
 function enderecoCompleto(l){
   // a planilha já traz o endereço completo (rua, nº - bairro - cidade - UF); só completa o que faltar
@@ -298,10 +310,12 @@ f.vendedor.addEventListener("change", () => Object.values(pickers).forEach(p => 
 const tipo = () => f.solicitacao.value;
 const isRemanejo = () => /^Remanejo/.test(tipo());
 const isVisita = () => /Visita/.test(tipo());
+const isNova = () => /nova t/i.test(tipo());
 f.solicitacao.addEventListener("change", () => {
   $("#cardRemanejo").classList.toggle("hidden", !isRemanejo());
   $("#cardVisita").classList.toggle("hidden", !isVisita());
-  $("#nContato").textContent = (isRemanejo() || isVisita()) ? "3" : "2";
+  $("#cardNova").classList.toggle("hidden", !isNova());
+  $("#nContato").textContent = (isRemanejo() || isVisita() || isNova()) ? "3" : "2";
 });
 
 // ---------- validação e envio ----------
@@ -310,16 +324,17 @@ f.addEventListener("change", e => e.target.classList && e.target.classList.remov
 function showErr(msg){ const b=$("#errBox"); b.innerHTML=msg; b.style.display = msg ? "block" : "none"; if(msg) b.scrollIntoView({behavior:"smooth",block:"center"}); }
 function validar(){
   const msgs = [];
-  ["vendedor","solicitacao","motivo","contato_nome","contato_tel"].forEach(n => { if(!f[n].value.trim()){ f[n].classList.add("invalid"); } });
+  ["vendedor","solicitacao","motivo","prazo"].forEach(n => { if(!f[n].value.trim()){ f[n].classList.add("invalid"); } });
   if(!f.vendedor.value) msgs.push("Selecione o vendedor.");
   if(!f.solicitacao.value) msgs.push("Selecione o tipo de solicitação.");
   if(!f.motivo.value) msgs.push("Selecione o motivo.");
-  const need = isRemanejo() ? ["retirar","entregar"] : isVisita() ? ["visita"] : [];
+  if(!f.prazo.value) msgs.push("Informe o prazo limite.");
+  else if(f.prazo.value < hojeISO()) { f.prazo.classList.add("invalid"); msgs.push("O prazo limite não pode ser uma data passada."); }
+  const need = isRemanejo() ? ["retirar","entregar"] : isVisita() ? ["visita"] : isNova() ? ["nova"] : [];
   need.forEach(k => { if(!pickers[k].value){ pickers[k].inp.classList.add("invalid"); msgs.push(`Escolha a ${pickers[k].label.toLowerCase()}.`); } });
   if(isRemanejo() && pickers.retirar.value && pickers.entregar.value && pickers.retirar.value === pickers.entregar.value)
     msgs.push("A loja a retirar e a loja a entregar não podem ser a mesma.");
-  if(!f.contato_nome.value.trim()) msgs.push("Informe o gerente ou responsável.");
-  if(onlyDigits(f.contato_tel.value).length < 10){ f.contato_tel.classList.add("invalid"); msgs.push("Informe um telefone válido com DDD."); }
+  if(f.contato_tel.value.trim() && onlyDigits(f.contato_tel.value).length < 10){ f.contato_tel.classList.add("invalid"); msgs.push("Informe um telefone válido com DDD."); }
   return msgs;
 }
 const lojaPayload = l => l ? { nome:l.n, razao:l.r, cnpj:l.c, endereco:enderecoCompleto(l), carteira:l.v } : null;
@@ -332,8 +347,9 @@ f.addEventListener("submit", async ev => {
   const dados = {
     vendedor: f.vendedor.value, solicitacao: f.solicitacao.value, motivo: f.motivo.value,
     loja_retirar: isRemanejo() ? lojaPayload(pickers.retirar.value) : null,
-    loja_entregar: isRemanejo() ? lojaPayload(pickers.entregar.value) : null,
+    loja_entregar: isRemanejo() ? lojaPayload(pickers.entregar.value) : isNova() ? lojaPayload(pickers.nova.value) : null,
     loja_visita: isVisita() ? lojaPayload(pickers.visita.value) : null,
+    prazo: f.prazo.value.split("-").reverse().join("/"),
     contato_nome: f.contato_nome.value.trim(), contato_tel: f.contato_tel.value.trim(), observacao: f.observacao.value.trim()
   };
   const btn = $("#btnSend"); btn.disabled = true; btn.textContent = "Enviando...";
@@ -348,7 +364,7 @@ f.addEventListener("submit", async ev => {
       if(!out.ok) throw new Error(out.erro || "Erro no envio.");
       protocolo = out.protocolo; aprovacao = !!out.aprovacao;
     }
-    const alvo = dados.loja_visita ? dados.loja_visita.nome : `${dados.loja_retirar.nome} → ${dados.loja_entregar.nome}`;
+    const alvo = dados.loja_visita ? dados.loja_visita.nome : !dados.loja_retirar ? `Nova térmica → ${dados.loja_entregar.nome}` : `${dados.loja_retirar.nome} → ${dados.loja_entregar.nome}`;
     $("#doneTitle").textContent = aprovacao ? "Enviada para aprovação!" : "Solicitação aprovada e enviada!";
     $("#doneMsg").innerHTML = `<b>${esc(dados.solicitacao)}</b><br>${esc(alvo)}<br>Protocolo: ${esc(protocolo)}<br><br>`
       + (aprovacao ? "O gestor vai analisar. Depois de aprovada, a equipe recebe e dá andamento." : "A equipe já recebeu e vai dar andamento.");
