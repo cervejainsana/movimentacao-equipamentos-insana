@@ -75,6 +75,7 @@ max-height:300px;overflow:auto;z-index:20;box-shadow:0 10px 26px rgba(0,0,0,.45)
 .err-box{background:rgba(230,88,79,.12);border:1px solid rgba(230,88,79,.4);color:#ffb3ad;border-radius:12px;padding:12px 14px;font-size:14px;margin-bottom:14px;display:none;line-height:1.5;}
 .done{display:none;text-align:center;padding:36px 8px;}
 .done .ic{width:72px;height:72px;border-radius:50%;background:var(--lime);color:#0a0a0f;font-size:40px;font-weight:900;display:flex;align-items:center;justify-content:center;margin:0 auto 18px;box-shadow:0 0 30px var(--lime-glow);}
+.nudge{display:block;margin-top:18px;background:var(--lime-dim);border:1px solid rgba(143,249,37,.4);color:var(--lime);border-radius:12px;padding:14px 16px;font-weight:700;line-height:1.45;}
 .done h2{font-size:24px;margin:0 0 8px;} .done p{color:var(--text-2);margin:0 0 22px;line-height:1.5;}
 .hp{position:absolute;left:-9999px;}
 footer{color:var(--muted);font-size:12px;text-align:center;margin-top:26px;line-height:1.7;}
@@ -108,6 +109,7 @@ footer a:hover{text-decoration:underline;}
       <option>Remanejo de Térmicas</option>
       <option>Remanejo de Geladeiras</option>
       <option>Solicitar nova térmica</option>
+      <option>Solicitar nova geladeira</option>
       <option>Solicitação de Visita Técnica (Geladeira)</option>
     </select></div>
   <div class="field"><label class="lb" for="motivo">Motivo <b class="req">*</b></label>
@@ -131,7 +133,7 @@ footer a:hover{text-decoration:underline;}
 
 <div class="card hidden" id="cardNova">
   <h2><span class="n">2</span>Loja</h2>
-  <p class="hint">Loja que ainda não tem térmica e vai receber uma nova. Busque pelo nome ou pelo CNPJ.</p>
+  <p class="hint" id="hintNova">Loja que vai receber o equipamento novo. Busque pelo nome ou pelo CNPJ.</p>
   <div class="field" data-picker="nova" data-label="Loja para enviar a térmica"></div>
 </div>
 
@@ -151,6 +153,13 @@ footer a:hover{text-decoration:underline;}
     <textarea id="observacao" name="observacao" placeholder="Ex.: modelo do equipamento, horário para retirada, defeito apresentado..."></textarea></div>
 </div>
 
+<div class="card">
+  <h2><span class="n" id="nEmail">4</span>Acompanhe por e-mail</h2>
+  <p class="hint">Quer acompanhar esta solicitação? Informe seu e-mail e avisamos quando ela for aprovada ou recusada.</p>
+  <div class="field"><label class="lb" for="vendedor_email">Seu e-mail</label>
+    <input id="vendedor_email" name="vendedor_email" type="email" inputmode="email" autocomplete="email" placeholder="Opcional"></div>
+</div>
+
 <button class="btn submit" type="submit" id="btnSend">Enviar solicitação</button>
 </form>
 </div>
@@ -168,7 +177,8 @@ footer a:hover{text-decoration:underline;}
 <script>
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxgVfgjdxdlRp7PvwMXzugkycs1cbRv2PdeKjZgHVvyBL4WBJHcXT1_bADD-4P-MY4kEw/exec";
 let LOJAS = [];
-const CACHE_KEY = "insana_lojas_v1";
+const CACHE_KEY = "insana_lojas_v2";
+let VENDEDORES = [];
 
 const $ = (s, r=document) => r.querySelector(s);
 const f = $("#f");
@@ -180,8 +190,9 @@ if(isPreview) $("#previewBanner").classList.remove("hidden");
 
 // ---------- vendedores ----------
 function preencherVendedores(){
-  const vendedores = [...new Set(LOJAS.map(l => l.v))].sort((a,b) => a.localeCompare(b,"pt-BR"));
-  f.vendedor.innerHTML = '<option value="">Selecione seu nome</option>' + vendedores.map(v => `<option>${esc(v)}</option>`).join("");
+  const vendedores = (VENDEDORES.length ? VENDEDORES.slice() : [...new Set(LOJAS.map(l => l.v))]).sort((a,b) => a.localeCompare(b,"pt-BR"));
+  f.vendedor.innerHTML = '<option value="">Selecione seu nome</option>'
+    + vendedores.map(v => `<option value="${esc(v)}">${esc(v)}${norm(v) === norm(GESTOR) ? " (gestor)" : ""}</option>`).join("");
   f.vendedor.disabled = false;
 }
 async function carregarLojas(){
@@ -189,15 +200,15 @@ async function carregarLojas(){
   f.vendedor.innerHTML = '<option value="">Carregando lojas...</option>'; f.vendedor.disabled = true;
   let cache = null;
   try{ cache = JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); }catch(e){}
-  if(cache && cache.lojas && cache.lojas.length){ LOJAS = cache.lojas; preencherVendedores(); }
+  if(cache && cache.lojas && cache.lojas.length){ LOJAS = cache.lojas; VENDEDORES = cache.vendedores || []; preencherVendedores(); }
   try{
     const r = await fetch(SCRIPT_URL + "?acao=lojas");
     const out = await r.json();
     if(!out.ok || !out.lojas || !out.lojas.length) throw new Error(out.erro || "lista vazia");
     const valorAtual = f.vendedor.value;
-    LOJAS = out.lojas; preencherVendedores();
+    LOJAS = out.lojas; VENDEDORES = out.vendedores || []; preencherVendedores();
     if(valorAtual) f.vendedor.value = valorAtual;
-    try{ localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), lojas: LOJAS })); }catch(e){}
+    try{ localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), lojas: LOJAS, vendedores: VENDEDORES })); }catch(e){}
   }catch(e){
     if(!LOJAS.length){
       f.vendedor.innerHTML = '<option value="">Não foi possível carregar as lojas</option>';
@@ -310,12 +321,19 @@ f.vendedor.addEventListener("change", () => Object.values(pickers).forEach(p => 
 const tipo = () => f.solicitacao.value;
 const isRemanejo = () => /^Remanejo/.test(tipo());
 const isVisita = () => /Visita/.test(tipo());
-const isNova = () => /nova t/i.test(tipo());
+const isNova = () => /^Solicitar nova/i.test(tipo());
+const equipNovo = () => /geladeira/i.test(tipo()) ? "geladeira" : "térmica";
 f.solicitacao.addEventListener("change", () => {
   $("#cardRemanejo").classList.toggle("hidden", !isRemanejo());
   $("#cardVisita").classList.toggle("hidden", !isVisita());
   $("#cardNova").classList.toggle("hidden", !isNova());
-  $("#nContato").textContent = (isRemanejo() || isVisita() || isNova()) ? "3" : "2";
+  const temLoja = isRemanejo() || isVisita() || isNova();
+  $("#nContato").textContent = temLoja ? "3" : "2"; $("#nEmail").textContent = temLoja ? "4" : "3";
+  if(isNova()){
+    const lbl = `Loja para enviar a ${equipNovo()}`; pickers.nova.label = lbl;
+    pickers.nova.host.querySelector(".lb").innerHTML = `${lbl} <b class="req">*</b>`;
+    $("#hintNova").textContent = `Loja que vai receber a ${equipNovo()} nova. Busque pelo nome ou pelo CNPJ.`;
+  }
 });
 
 // ---------- validação e envio ----------
@@ -334,6 +352,7 @@ function validar(){
   need.forEach(k => { if(!pickers[k].value){ pickers[k].inp.classList.add("invalid"); msgs.push(`Escolha a ${pickers[k].label.toLowerCase()}.`); } });
   if(isRemanejo() && pickers.retirar.value && pickers.entregar.value && pickers.retirar.value === pickers.entregar.value)
     msgs.push("A loja a retirar e a loja a entregar não podem ser a mesma.");
+  if(f.vendedor_email.value.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.vendedor_email.value.trim())){ f.vendedor_email.classList.add("invalid"); msgs.push("Confira o seu e-mail (ou deixe em branco)."); }
   if(f.contato_tel.value.trim() && onlyDigits(f.contato_tel.value).length < 10){ f.contato_tel.classList.add("invalid"); msgs.push("Informe um telefone válido com DDD."); }
   return msgs;
 }
@@ -350,7 +369,8 @@ f.addEventListener("submit", async ev => {
     loja_entregar: isRemanejo() ? lojaPayload(pickers.entregar.value) : isNova() ? lojaPayload(pickers.nova.value) : null,
     loja_visita: isVisita() ? lojaPayload(pickers.visita.value) : null,
     prazo: f.prazo.value.split("-").reverse().join("/"),
-    contato_nome: f.contato_nome.value.trim(), contato_tel: f.contato_tel.value.trim(), observacao: f.observacao.value.trim()
+    contato_nome: f.contato_nome.value.trim(), contato_tel: f.contato_tel.value.trim(), observacao: f.observacao.value.trim(),
+    vendedor_email: f.vendedor_email.value.trim()
   };
   const btn = $("#btnSend"); btn.disabled = true; btn.textContent = "Enviando...";
   try{
@@ -364,10 +384,12 @@ f.addEventListener("submit", async ev => {
       if(!out.ok) throw new Error(out.erro || "Erro no envio.");
       protocolo = out.protocolo; aprovacao = !!out.aprovacao;
     }
-    const alvo = dados.loja_visita ? dados.loja_visita.nome : !dados.loja_retirar ? `Nova térmica → ${dados.loja_entregar.nome}` : `${dados.loja_retirar.nome} → ${dados.loja_entregar.nome}`;
+    const alvo = dados.loja_visita ? dados.loja_visita.nome : !dados.loja_retirar ? `Nova ${equipNovo()} → ${dados.loja_entregar.nome}` : `${dados.loja_retirar.nome} → ${dados.loja_entregar.nome}`;
     $("#doneTitle").textContent = aprovacao ? "Enviada para aprovação!" : "Solicitação aprovada e enviada!";
     $("#doneMsg").innerHTML = `<b>${esc(dados.solicitacao)}</b><br>${esc(alvo)}<br>Protocolo: ${esc(protocolo)}<br><br>`
-      + (aprovacao ? "O gestor vai analisar. Depois de aprovada, a equipe recebe e dá andamento." : "A equipe já recebeu e vai dar andamento.");
+      + (aprovacao ? "O gestor vai analisar. Depois de aprovada, a equipe recebe e dá andamento." : "A equipe já recebeu e vai dar andamento.")
+      + (dados.vendedor_email ? `<br>Você vai receber as atualizações em <b>${esc(dados.vendedor_email)}</b>.` : "")
+      + (aprovacao ? `<span class="nudge">Pronto! Para agilizar, avise o Luan que você gerou essa solicitação.</span>` : "");
     $("#formView").style.display="none"; $("#doneView").style.display="block";
     window.scrollTo({top:0,behavior:"smooth"});
   }catch(e){
