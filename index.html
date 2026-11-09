@@ -96,6 +96,8 @@ footer a:hover{text-decoration:underline;}
 <div class="preview-banner hidden" id="previewBanner">Versão de conferência: o envio ainda não está ligado.</div>
 <div class="err-box" id="errBox"></div>
 
+<p id="statusLojas" class="hint" role="status" aria-live="polite"></p>
+<button type="button" id="atualizarLojas" class="btn btn-sec" style="margin-bottom:14px">Atualizar lista de lojas</button>
 <form id="f" novalidate autocomplete="off">
 <input class="hp" type="text" name="website" tabindex="-1" autocomplete="off">
 
@@ -177,7 +179,7 @@ footer a:hover{text-decoration:underline;}
 <script>
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxgVfgjdxdlRp7PvwMXzugkycs1cbRv2PdeKjZgHVvyBL4WBJHcXT1_bADD-4P-MY4kEw/exec";
 let LOJAS = [];
-const CACHE_KEY = "insana_lojas_v2";
+const CACHE_KEY = "insana_lojas_v3";
 let VENDEDORES = [];
 
 const $ = (s, r=document) => r.querySelector(s);
@@ -195,26 +197,130 @@ function preencherVendedores(){
     + vendedores.map(v => `<option value="${esc(v)}">${esc(v)}${norm(v) === norm(GESTOR) ? " (gestor)" : ""}</option>`).join("");
   f.vendedor.disabled = false;
 }
-async function carregarLojas(){
-  if(LOJAS.length){ preencherVendedores(); return; }
-  f.vendedor.innerHTML = '<option value="">Carregando lojas...</option>'; f.vendedor.disabled = true;
-  let cache = null;
-  try{ cache = JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); }catch(e){}
-  if(cache && cache.lojas && cache.lojas.length){ LOJAS = cache.lojas; VENDEDORES = cache.vendedores || []; preencherVendedores(); }
-  try{
-    const r = await fetch(SCRIPT_URL + "?acao=lojas");
-    const out = await r.json();
-    if(!out.ok || !out.lojas || !out.lojas.length) throw new Error(out.erro || "lista vazia");
-    const valorAtual = f.vendedor.value;
-    LOJAS = out.lojas; VENDEDORES = out.vendedores || []; preencherVendedores();
-    if(valorAtual) f.vendedor.value = valorAtual;
-    try{ localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), lojas: LOJAS, vendedores: VENDEDORES })); }catch(e){}
-  }catch(e){
-    if(!LOJAS.length){
-      f.vendedor.innerHTML = '<option value="">Não foi possível carregar as lojas</option>';
-      showErr("Não foi possível carregar a lista de lojas. Verifique a internet e recarregue a página.");
-    }
+const DASHBOARD_LOJAS_URL = "https://cervejainsana.github.io/dashboard-comercial-insana/lojas.json";
+let cadastroLojas = null;
+let dashboardLojas = null;
+let atualizacaoLojas = null;
+let cacheLojasLido = false;
+const chaveLoja = nome => norm(nome).trim().replace(/\s+/g, " ");
+
+function combinarLojas(cadastro, dashboard){
+  const grupos = new Map();
+  for(const loja of cadastro){
+    const chave = chaveLoja(loja.n);
+    if(!grupos.has(chave)) grupos.set(chave, []);
+    grupos.get(chave).push(loja);
   }
+  const utilizadas = new Set();
+  const resultado = [];
+  for(const loja of dashboard){
+    const candidatas = (grupos.get(chaveLoja(loja.loja)) || []).filter(l =>
+      !l.r || !loja.rede || chaveLoja(l.r) === chaveLoja(loja.rede));
+    const mesmaCarteira = candidatas.filter(l => chaveLoja(l.v) === chaveLoja(loja.vendedor));
+    const dados = mesmaCarteira.length === 1 ? mesmaCarteira[0] : candidatas.length === 1 ? candidatas[0] : {};
+    if(candidatas.includes(dados)) utilizadas.add(dados);
+    resultado.push({
+      ...dados, n: loja.loja, v: loja.vendedor, r: dados.r || loja.rede || "",
+      c: dados.c || "", e: dados.e || "", b: dados.b || "", m: dados.m || "", p: dados.p || ""
+    });
+  }
+  resultado.push(...cadastro.filter(l => !utilizadas.has(l)));
+  const unicas = new Map();
+  for(const loja of resultado){
+    unicas.set([chaveLoja(loja.v), chaveLoja(loja.n), onlyDigits(loja.c) || chaveLoja(loja.r)].join("|"), loja);
+  }
+  return [...unicas.values()];
+}
+
+function aplicarLojas(){
+  const vendedor = f.vendedor.value;
+  LOJAS = combinarLojas(cadastroLojas?.lojas || [], dashboardLojas?.lojas || []);
+  // O cadastro define os representantes habilitados a solicitar equipamentos.
+  VENDEDORES = cadastroLojas?.vendedores || [];
+  if(!LOJAS.length) return;
+  preencherVendedores();
+  f.vendedor.value = vendedor;
+  for(const picker of Object.values(pickers)){
+    if(picker.value){
+      const atual = LOJAS.find(l => chaveLoja(l.n) === chaveLoja(picker.value.n)
+        && chaveLoja(l.v) === chaveLoja(picker.value.v));
+      if(atual) picker.select(atual);
+      else picker.clear(false);
+    }
+    picker.list.classList.add("hidden");
+    picker.enable();
+  }
+}
+
+async function buscarLista(url){
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try{
+    const resposta = await fetch(url, { cache: "no-store", signal: controller.signal });
+    if(!resposta.ok) throw new Error("Falha ao consultar lojas");
+    return await resposta.json();
+  }finally{
+    clearTimeout(timeout);
+  }
+}
+
+async function atualizarLojas(){
+  if(!cacheLojasLido){
+    cacheLojasLido = true;
+    try{
+      const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+      cadastroLojas = cache?.cadastro || null;
+      dashboardLojas = cache?.dashboard || null;
+    }catch(e){}
+    aplicarLojas();
+  }
+  if(!LOJAS.length){
+    f.vendedor.innerHTML = '<option value="">Carregando lojas...</option>';
+    f.vendedor.disabled = true;
+  }
+  $("#statusLojas").textContent = "Conferindo lojas no dashboard...";
+  const [cadastro, dashboard] = await Promise.allSettled([
+    buscarLista(SCRIPT_URL + "?acao=lojas").then(out => {
+      if(!out.ok || !Array.isArray(out.lojas) || !out.lojas.length
+        || !out.lojas.every(l => typeof l.n === "string" && typeof l.v === "string"))
+        throw new Error("Cadastro inválido");
+      return out;
+    }),
+    buscarLista(DASHBOARD_LOJAS_URL + "?atualizacao=" + Date.now()).then(out => {
+      if(out.versao !== 1 || !Array.isArray(out.lojas) || !out.lojas.length
+        || !out.lojas.every(l => typeof l.loja === "string" && l.loja.trim()
+          && typeof l.vendedor === "string" && l.vendedor.trim()))
+        throw new Error("Lista do dashboard inválida");
+      return out;
+    })
+  ]);
+  if(cadastro.status === "fulfilled") cadastroLojas = cadastro.value;
+  if(dashboard.status === "fulfilled") dashboardLojas = dashboard.value;
+  aplicarLojas();
+  try{
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ cadastro: cadastroLojas, dashboard: dashboardLojas }));
+  }catch(e){}
+  const avisos = [];
+  if(dashboard.status === "fulfilled"){
+    avisos.push("Lojas sincronizadas com o dashboard de " + dashboardLojas.gerado_em + ".");
+  }else{
+    avisos.push("Não foi possível atualizar pelo dashboard. Exibindo a lista salva; confira a conexão.");
+  }
+  if(cadastro.status !== "fulfilled"){
+    avisos.push("Dados cadastrais temporariamente indisponíveis. Confira CNPJ e endereço da loja selecionada.");
+  }
+  $("#statusLojas").textContent = avisos.join(" ");
+  if(!LOJAS.length){
+    f.vendedor.innerHTML = '<option value="">Não foi possível carregar as lojas</option>';
+    showErr("Não foi possível carregar a lista de lojas. Verifique a internet e tente atualizar a lista.");
+  }
+}
+
+function carregarLojas(){
+  if(!atualizacaoLojas){
+    atualizacaoLojas = atualizarLojas().finally(() => { atualizacaoLojas = null; });
+  }
+  return atualizacaoLojas;
 }
 
 // ---------- máscara telefone ----------
@@ -310,7 +416,7 @@ function makePicker(host){
   list.addEventListener("mousedown", e => e.preventDefault());
   list.addEventListener("click", e => { const it = e.target.closest(".item"); if(it) select(st.results[+it.dataset.i]); });
   document.addEventListener("click", e => { if(!host.contains(e.target)) list.classList.add("hidden"); });
-  st.enable = enable; st.clear = clear;
+  st.enable = enable; st.clear = clear; st.select = select;
   pickers[key] = st; enable();
 }
 document.querySelectorAll("[data-picker]").forEach(makePicker);
@@ -397,7 +503,16 @@ f.addEventListener("submit", async ev => {
     btn.disabled=false; btn.textContent="Enviar solicitação";
   }
 });
+$("#atualizarLojas").addEventListener("click", () => carregarLojas());
+window.addEventListener("online", () => carregarLojas());
+document.addEventListener("visibilitychange", () => {
+  if(!document.hidden) carregarLojas();
+});
+setInterval(() => {
+  if(!document.hidden) carregarLojas();
+}, 60000);
 carregarLojas();
 </script>
 </body>
 </html>
+
