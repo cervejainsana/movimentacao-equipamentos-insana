@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Aprovar movimentação • Insana</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f4f0;color:#181b17;font:16px/1.5 Arial,sans-serif}header{background:#151914;color:#fff;padding:22px 24px;border-bottom:5px solid #8ff925}header div,main{max-width:760px;margin:auto}header strong{letter-spacing:3px}header span{display:block;font-size:13px;color:#c9d1c6}main{padding:30px 20px 60px}h1{font-size:28px;margin:0 0 8px}.muted{color:#62695f;font-size:14px}.card{background:white;border:1px solid #dce1d8;border-radius:14px;padding:22px;margin:20px 0;overflow-wrap:anywhere}label{display:block;font-weight:700;margin-bottom:8px}textarea,input{width:100%;font:inherit;border:1px solid #aab3a4;border-radius:8px;padding:12px}textarea{min-height:105px;resize:vertical}button{font:700 15px Arial;cursor:pointer;padding:15px 20px;border:0;border-radius:8px;margin-top:12px;background:#8ff925;color:#15200d}button:disabled{opacity:.55;cursor:wait}.no{background:#f7e4df;color:#8e291b}#status{padding:12px 15px;border-radius:8px;background:#eef4e9;white-space:pre-line}#error{color:#a0291d;white-space:pre-line}table{width:100%!important}td{overflow-wrap:anywhere}details{margin-top:24px}summary{cursor:pointer;font-weight:700}[hidden]{display:none!important}button:focus-visible,textarea:focus-visible,input:focus-visible{outline:3px solid #47890a;outline-offset:3px}
+</style></head><body><header><div><strong>INSANA</strong><span>Movimentação de equipamentos</span></div></header><main><h1>Revisar solicitação</h1><p class="muted">Confira os detalhes antes de aprovar ou recusar.</p><p id="status" role="status">Carregando solicitação…</p><p id="error" role="alert"></p><button id="retry" hidden>Tentar novamente</button><div id="summary" class="card" hidden></div>
+<section id="actions" hidden><form id="approve" class="card"><label for="note">Observação da aprovação (opcional)</label><textarea id="note" maxlength="2000" placeholder="Ex.: entregar após as 14h e combinar com o gerente."></textarea><p class="muted">A observação ficará registrada e acompanhará o aviso à equipe.</p><button type="submit">Aprovar e enviar para a equipe</button></form><details class="card"><summary>Recusar solicitação</summary><form id="reject"><label for="reason">Motivo da recusa</label><textarea id="reason" required maxlength="2000"></textarea><button type="submit" class="no">Confirmar recusa</button></form></details></section>
+<form id="legacy" class="card" hidden><label for="oldlink">Link recebido por e-mail</label><p class="muted">Cole o link do botão “Revisar solicitação” para abrir por aqui.</p><input id="oldlink" type="url" required placeholder="https://…"><button>Abrir solicitação</button></form><p class="muted">O link é exclusivo desta solicitação. Guarde-o para consultar a decisão.</p></main>
+<script>
+'use strict';
+const API='https://script.google.com/macros/s/AKfycbxgVfgjdxdlRp7PvwMXzugkycs1cbRv2PdeKjZgHVvyBL4WBJHcXT1_bADD-4P-MY4kEw/exec';
+const $=id=>document.getElementById(id);
+let params=new URLSearchParams(location.hash.slice(1)||location.search.slice(1));
+let busy=false;
+function credentials(){return {id:params.get('id')||'',t:params.get('t')||''};}
+function render(data){
+ $('summary').innerHTML=data.resumo_html; $('summary').hidden=false;
+ $('status').textContent=data.status+(data.decidido_em?' • '+data.decidido_em:'')+(data.motivo_recusa?'\nMotivo: '+data.motivo_recusa:'');
+ $('actions').hidden=data.status!=='Aguardando aprovação';
+}
+async function request(decision){
+ if(busy)return;
+ const auth=credentials();
+ if(!auth.id||!auth.t){$('status').textContent='Abra o link de uma solicitação recebido por e-mail.';$('legacy').hidden=false;return;}
+ busy=true; $('error').textContent='';$('retry').hidden=true;
+ document.querySelectorAll('#actions button').forEach(b=>b.disabled=true);
+ try{
+  const fields=new URLSearchParams({...auth,acao:decision?'decidir_json':'consultar_aprovacao'});
+  if(decision){fields.set('decisao',decision);fields.set('observacao_aprovacao',$('note').value);fields.set('motivo',$('reason').value);}
+  const response=await fetch(decision?API:API+'?'+fields,{method:decision?'POST':'GET',body:decision?fields:undefined,credentials:'omit',cache:'no-store',redirect:'follow'});
+  if(!response.ok)throw new Error('Não foi possível consultar o serviço.');
+  const data=await response.json();if(!data.ok)throw new Error(data.erro||'Não foi possível concluir.');render(data);
+ }catch(error){$('error').textContent=(error instanceof TypeError||error instanceof SyntaxError?'Não foi possível conectar. Verifique sua conexão e tente novamente.':error.message)+(decision?' Antes de reenviar, consulte o status pelo botão abaixo.':'');$('retry').hidden=false;$('status').textContent='Não foi possível confirmar o status.';if(decision)$('actions').hidden=true;}
+ finally{busy=false;document.querySelectorAll('#actions button').forEach(b=>b.disabled=false);}
+}
+$('approve').addEventListener('submit',e=>{e.preventDefault();request('aprovar');});
+$('reject').addEventListener('submit',e=>{e.preventDefault();request('recusar');});
+$('retry').addEventListener('click',()=>request());
+$('legacy').addEventListener('submit',e=>{e.preventDefault();try{const url=new URL($('oldlink').value);const p=new URLSearchParams(url.hash.slice(1)||url.search.slice(1));if(!p.get('id')||!p.get('t'))throw Error();location.hash=new URLSearchParams({id:p.get('id'),t:p.get('t')}).toString();}catch{$('error').textContent='Cole o link completo da solicitação.';}});
+addEventListener('hashchange',()=>{params=new URLSearchParams(location.hash.slice(1));$('legacy').hidden=true;$('summary').hidden=true;$('actions').hidden=true;request();});
+request();
+</script></body></html>
