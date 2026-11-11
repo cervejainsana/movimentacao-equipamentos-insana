@@ -14,7 +14,8 @@ let busy=false;
 function credentials(){return {id:params.get('id')||'',t:params.get('t')||''};}
 function render(data){
  $('summary').innerHTML=data.resumo_html; $('summary').hidden=false;
- $('status').textContent=data.status+(data.decidido_em?' • '+data.decidido_em:'')+(data.motivo_recusa?'\nMotivo: '+data.motivo_recusa:'');
+ const when=/^\d{4}-\d{2}-\d{2}T/.test(data.decidido_em||'')?new Date(data.decidido_em).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',dateStyle:'short',timeStyle:'short'}):data.decidido_em;
+ $('status').textContent=data.status+(when?' • '+when:'')+(data.motivo_recusa?'\nMotivo: '+data.motivo_recusa:'');
  $('actions').hidden=data.status!=='Aguardando aprovação';
 }
 async function request(decision){
